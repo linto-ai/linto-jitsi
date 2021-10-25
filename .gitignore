@@ -1,0 +1,15 @@
+/super_jitsi
+/jitsi-ssh
+/config_docker
+.env
+
+/classes
+*.swp
+dist
+*.class
+*.jar
+
+.idea/*
+jigasi.iml
+
+/target
