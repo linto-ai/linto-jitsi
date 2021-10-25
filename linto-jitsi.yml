@@ -1,0 +1,96 @@
+version: '3.7'
+
+services:
+    # Frontend
+    web:
+        image: quadeare/jitsi-web:unstable
+        deploy:
+          mode: replicated
+          replicas: 1
+          labels:
+            - "traefik.enable=true"
+            - "traefik.http.services.test.loadbalancer.server.port=80"
+            - "traefik.http.routers.test.entrypoints=http"
+            - "traefik.http.routers.test.rule=Host(`${MY_DOMAIN}`)"
+            - "traefik.http.routers.testsecure.entrypoints=https"
+            - "traefik.http.routers.testsecure.tls=true"
+            - "traefik.http.routers.testsecure.rule=Host(`${MY_DOMAIN}`)"
+            - "traefik.http.routers.test.middlewares=ssl-redirect@file"
+            - "traefik.http.routers.testsecure.tls.certresolver=mytlschallenge"
+        volumes:
+            # For usage on a replicated volume across cluster, use something like nfs, glusterfs or ceph
+            - ${LINTO_SHARED_MOUNT}/jitsi/web:/config
+            - ${LINTO_SHARED_MOUNT}/jitsi/web/letsencrypt:/etc/letsencrypt
+            - ${LINTO_SHARED_MOUNT}/jitsi/transcripts:/usr/share/jitsi-meet/transcripts
+        env_file: .env
+        networks:
+            linto-net:
+            meetjitsi:
+                aliases:
+                    - ${XMPP_DOMAIN}
+    # XMPP server
+    prosody:
+        image: quadeare/jitsi-prosody:unstable
+        volumes:
+            - ${LINTO_SHARED_MOUNT}/jitsi/prosody:/config
+            - ${LINTO_SHARED_MOUNT}/jitsi/prosody/defaults/conf.d:/defaults/conf.d
+        env_file: .env
+        networks:
+            meetjitsi:
+                aliases:
+                    - ${XMPP_SERVER}
+
+    # Focus component
+    jicofo:
+        image: jitsi/jicofo
+        volumes:
+            - ${LINTO_SHARED_MOUNT}/jitsi/jicofo:/config
+        env_file: .env
+        networks:
+            meetjitsi:
+
+    # Video bridge
+    ## Rework with UDP entrypoint
+    jvb:
+        image: quadeare/jitsi-jvb:unstable
+        ports:
+          - target: ${JVB_PORT}
+            published: ${JVB_PORT}
+            protocol: udp
+            mode: host
+          - target: ${JVB_TCP_PORT}
+            published: ${JVB_TCP_PORT}
+            protocol: tcp
+            mode: host
+        deploy:
+          mode: replicated
+          replicas: 1
+          placement:
+            constraints:
+              - node.role == manager
+        env_file: .env
+        volumes:
+            - ${LINTO_SHARED_MOUNT}/jitsi/jvb:/config
+        networks:
+            meetjitsi:
+    jigasi:
+        image: linto-jigasi:latest
+        # image: jitsi/jigasi
+        deploy:
+          mode: replicated
+          replicas: 1
+        ports:
+            - '${JIGASI_PORT_MIN}-${JIGASI_PORT_MAX}:${JIGASI_PORT_MIN}-${JIGASI_PORT_MAX}/udp'
+        volumes:
+            - ${LINTO_SHARED_MOUNT}/jitsi/jigasi:/config:Z
+            - ${LINTO_SHARED_MOUNT}/jitsi/transcripts:/tmp/transcripts:Z
+        env_file: .env
+        networks:
+            meetjitsi:
+            linto-net:
+
+# Custom network so all services can communicate using a FQDN
+networks:
+    meetjitsi:
+    linto-net:
+        external: true
