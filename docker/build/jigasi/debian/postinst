@@ -1,0 +1,208 @@
+#!/bin/bash
+# postinst script for jigasi
+#
+# see: dh_installdeb(1)
+
+set -e
+
+# summary of how this script can be called:
+#        * <postinst> `configure' <most-recently-configured-version>
+#        * <old-postinst> `abort-upgrade' <new version>
+#        * <conflictor's-postinst> `abort-remove' `in-favour' <package>
+#          <new-version>
+#        * <postinst> `abort-remove'
+#        * <deconfigured's-postinst> `abort-deconfigure' `in-favour'
+#          <failed-install-package> <version> `removing'
+#          <conflicting-package> <version>
+# for details, see http://www.debian.org/doc/debian-policy/ or
+# the debian-policy package
+
+
+case "$1" in
+    configure)
+
+        CONFIG="/etc/jitsi/jigasi/config"
+
+        OLDCONFIG="false"
+        # migrate any old config found
+        if [ -f "/etc/default/jigasi" ]; then
+            mv /etc/default/jigasi $CONFIG
+        fi
+        # we don't want to regenerate config on upgrade
+        if [ -f $CONFIG ]; then
+            . $CONFIG
+            if [ -n "$JIGASI_SIPUSER" ] && [ -n "$JIGASI_SIPPWD" ]; then
+                OLDCONFIG="true"
+            fi
+        fi
+
+        # debconf hostname question
+        . /usr/share/debconf/confmodule
+
+        # try to get host from jitsi-videobridge
+        db_get jitsi-videobridge/jvb-hostname
+        if [ -z "$RET" ] ; then
+            # server hostname
+            db_set jitsi-videobridge/jvb-hostname "localhost"
+            db_input critical jitsi-videobridge/jvb-hostname || true
+            db_go
+        fi
+        JVB_HOSTNAME="$RET"
+
+        # generate config on new install
+        if [ "$OLDCONFIG" = "false" ]; then
+
+            # debconf SIP account questions
+            db_get jigasi/sip-account
+            JIGASI_SIPUSER="$RET"
+            db_get jigasi/sip-password
+            JIGASI_SIPPWD=$(echo -n $RET | base64 -)
+
+            # 8-chars random secret, alternative to pwgen 8
+            JIGASI_XMPP_SECRET=`cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 16`
+
+            # storing default for later use by Jigasi and other packages
+            echo '# Jigasi settings' > $CONFIG
+            echo "JIGASI_SIPUSER=$JIGASI_SIPUSER" >> $CONFIG
+            echo "JIGASI_SIPPWD=$JIGASI_SIPPWD" >> $CONFIG
+            echo "JIGASI_OPTS=\"\"" >> $CONFIG
+        fi
+
+        # and we're done with debconf
+        db_stop
+
+        # store the domain name in the config
+        if ! grep -q "JIGASI_HOSTNAME" "$CONFIG"; then
+            echo "JIGASI_HOSTNAME=$JVB_HOSTNAME" >> $CONFIG
+        fi
+
+        if ! grep -q "JIGASI_HOST=" "$CONFIG"; then
+            echo "JIGASI_HOST=localhost" >> $CONFIG
+        fi
+
+        # let's check whether there is a setting in the $CONFIG
+        # logging props file, if missing add it
+        if ! grep -q "JAVA_SYS_PROPS" "$CONFIG"; then
+            echo >> $CONFIG
+            echo '# adds java system props that are passed to jigasi (default are for logging config file)' >> $CONFIG
+            echo "JAVA_SYS_PROPS=\"-Djava.util.logging.config.file=/etc/jitsi/jigasi/logging.properties\"" >> $CONFIG
+        fi
+
+        # we don't want to start the daemon as root
+        if ! getent group jitsi > /dev/null ; then
+            groupadd jitsi
+        fi
+        if ! getent passwd jigasi > /dev/null ; then
+            useradd -r -g jitsi --shell /bin/bash --create-home -d /usr/share/jigasi jigasi
+        fi
+        if ! groups jigasi | grep '\bjitsi\b' > /dev/null ; then
+            usermod -g jitsi jigasi
+        fi
+
+        # we create home folder only if it doesn't exist
+        if [ ! -d /usr/share/jigasi ]; then
+            mkdir -p /usr/share/jigasi
+        fi
+
+
+        # we claim the home folder of jigasi in case it is owned by someone else
+        OWNER=$(stat -c '%U' /etc/jitsi/jigasi)
+        GROUP=$(stat -c '%G' /etc/jitsi/jigasi)
+        if ! dpkg-statoverride --list /etc/jitsi/jigasi/* >/dev/null && [ "$OWNER:$GROUP" != "jigasi:jitsi" ]; then
+            chown -R jigasi:jitsi /usr/share/jigasi
+            OWNER=jigasi
+            GROUP=jitsi
+        fi
+
+        CONFIG_DIR=$(dirname $CONFIG)
+        if ! dpkg-statoverride --list "$CONFIG_DIR" >/dev/null; then
+            chown -R jigasi:jitsi "$CONFIG_DIR"
+            chmod 750 "$CONFIG_DIR"
+        fi
+
+        if [ ! -d /var/log/jitsi ]; then
+            mkdir -p /var/log/jitsi
+            chown $OWNER:$GROUP /var/log/jitsi
+            chmod 770 /var/log/jitsi
+        fi
+
+        if ls /var/log/jitsi/jigasi* 1>/dev/null 2>&1 ;then
+            chown -f -R $OWNER:$GROUP /var/log/jitsi/jigasi*
+            chmod -f -R 640 /var/log/jitsi/jigasi*
+            if [ -d /var/log/jitsi/jigasi ]; then
+                find /var/log/jitsi/jigasi -type d -exec chmod 750 '{}' \;
+            fi
+        fi
+
+        # create lib folder, will be used for transcriptions
+        if [ ! -d /var/lib/jigasi ]; then
+            mkdir -p /var/lib/jigasi
+            chown $OWNER:$GROUP /var/lib/jigasi
+            chmod 770 /var/lib/jigasi
+        fi
+
+        JIGASI_XMPP_PASSWORD_BASE64=$(echo -n $JIGASI_XMPP_SECRET | base64 -)
+
+        # populate the config with debconf values
+        JIGASI_CONFIG="/etc/jitsi/jigasi/sip-communicator.properties"
+        sed -i "s/<<JIGASI_SIPUSER>>/$JIGASI_SIPUSER/g" $JIGASI_CONFIG
+        sed -i "s/<<JIGASI_SIPPWD>>/$JIGASI_SIPPWD/g" $JIGASI_CONFIG
+        SIPSERVER=`echo $JIGASI_SIPUSER | cut -d'@' -f 2`
+        sed -i "s/<<JIGASI_SIPSERVER>>/$SIPSERVER/g" $JIGASI_CONFIG
+        sed -i "s/<<DOMAIN_BASE>>/$JVB_HOSTNAME/g" $JIGASI_CONFIG
+        sed -i "s/<<JIGASI_XMPP_PASSWORD_BASE64>>/$JIGASI_XMPP_PASSWORD_BASE64/g" $JIGASI_CONFIG
+
+        PROSODY_HOST_CONFIG="/etc/prosody/conf.avail/$JVB_HOSTNAME.cfg.lua"
+        if [ -f $PROSODY_HOST_CONFIG ]; then
+            echo -e "$JIGASI_XMPP_SECRET\n$JIGASI_XMPP_SECRET" | prosodyctl adduser jigasi@auth.$JVB_HOSTNAME || true
+        fi
+
+        JICOFO_CONFIG="/etc/jitsi/jicofo/jicofo.conf"
+        if [ -f $JICOFO_CONFIG ]; then
+            # add brewery room to jicofo config if it is not there
+            if ! hocon -f $JICOFO_CONFIG get jicofo.jigasi.brewery-jid > /dev/null 2>&1 ; then
+                hocon -f $JICOFO_CONFIG set jicofo.jigasi.brewery-jid \"JigasiBrewery@internal.auth.$JVB_HOSTNAME\" || true
+
+                # now let's restart jicofo
+                systemctl restart jicofo
+            fi
+        fi
+
+        # Prints a warning when we think that brewery is not configured
+        if ! grep -q ".BREWERY" "$JIGASI_CONFIG" ;then
+            echo "------------------------------------------------"
+            echo ""
+            echo "MUC brewery not configured!"
+            echo "Outgoing calls and transcriptions will not work till this is not fixed."
+            echo "Check out https://github.com/jitsi/jigasi#call-control-mucs-brewery"
+            echo ""
+            echo "------------------------------------------------"
+        fi
+
+
+        # ensure jigasi is not running - it will be started at the end
+        if [ -d /run/systemd/system ]; then
+            systemctl stop jigasi.service >/dev/null || true
+        fi
+
+        # clean up old jigasi group
+        if getent group jigasi > /dev/null; then
+            groupdel jigasi
+        fi
+    ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+    ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+    ;;
+esac
+
+# dh_installdeb will replace this with shell code automatically
+# generated by other debhelper scripts.
+
+#DEBHELPER#
+
+exit 0

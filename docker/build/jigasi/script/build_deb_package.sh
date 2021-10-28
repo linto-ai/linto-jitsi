@@ -20,23 +20,17 @@ TAG_NAME="v${MVNVER/-SNAPSHOT/}"
 
 echo "Current tag name: $TAG_NAME"
 
-if ! git rev-parse "$TAG_NAME" >/dev/null 2>&1
-then
-  git tag -a "$TAG_NAME" -m "Tagged automatically by Jenkins"
-  git push origin "$TAG_NAME"
-else
-  echo "Tag: $TAG_NAME already exists."
-fi
-
-VERSION_FULL=$(git describe --match "v[0-9\.]*" --long)
+VERSION_FULL=v2.1-0
 echo "Full version: ${VERSION_FULL}"
 
-VERSION=${VERSION_FULL:1}
+VERSION=2.1-0
 echo "Package version: ${VERSION}"
 
-REV=$(git log --pretty=format:'%h' -n 1)
-dch -v "$VERSION-1" "Build from git. $REV"
-dch -D unstable -r ""
+# Skip version build, .deb is only build on Docker
+
+# REV=$(echo $RANDOM | md5sum | head -c 5;)
+# dch -v "$VERSION-1" "Build from git. $REV"
+# dch -D unstable -r ""
 
 # We need to make sure all dependencies are downloaded before start building
 # the debian package
@@ -47,10 +41,6 @@ mvn versions:set -DnewVersion="${VERSION}"
 
 # now build the deb
 dpkg-buildpackage -tc -us -uc -b -d -aamd64
-
-# clean the current changes as dch had changed the change log
-git checkout debian/changelog
-git checkout pom.xml
 
 echo "Here are the resulting files in $(pwd ..)"
 echo "-----"

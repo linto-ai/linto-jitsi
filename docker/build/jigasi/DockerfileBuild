@@ -1,0 +1,18 @@
+FROM openjdk:11.0.10-jdk-buster
+
+RUN \
+        echo "deb http://deb.debian.org/debian buster-backports main contrib non-free" >> /etc/apt/sources.list && \
+        apt update && \
+        apt -t buster-backports install -y dpkg-dev debhelper && \
+        apt install -y  dh-systemd maven && \
+        apt install -y libxml2-utils devscripts
+
+COPY . /jigasi
+
+WORKDIR /jigasi
+
+RUN \
+        cd script && \
+        ./build_deb_package.sh
+
+RUN mvn clean install -Dassembly.skipAssembly=false -DskipTests

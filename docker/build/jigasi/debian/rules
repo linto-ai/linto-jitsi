@@ -1,0 +1,38 @@
+#!/usr/bin/make -f
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+#export DEB_VERBOSE_ALL=true
+
+# Disable debug package
+DEB_BUILD_OPTIONS=noddebs
+
+%:
+	dh $@
+
+override_dh_auto_clean:
+	mvn -Dmaven.repo.local=${HOME}/.m2/repository clean
+
+override_dh_auto_configure:
+	# do nothing
+
+override_dh_auto_test:
+	# do nothing
+
+override_dh_auto_build:
+	mvn -Dmaven.repo.local=${HOME}/.m2/repository -DskipTests -Dassembly.skipAssembly=true package
+	mvn -Dmaven.repo.local=${HOME}/.m2/repository dependency:copy-dependencies -DincludeScope=runtime
+
+override_dh_install:
+	mkdir debian/tmp
+	cp jigasi-home/log4j2.xml debian/tmp/
+	sed -i "s/logs/\/var\/log\/jitsi/g" debian/tmp/log4j2.xml
+	cp target/jigasi*.jar debian/tmp/jigasi.jar
+	dh_install
+
+override_dh_installinit:
+	dh_installinit --noscripts
+
+override_dh_auto_install:
+	dh_auto_install
+	dh_installsystemd --restart-after-upgrade
