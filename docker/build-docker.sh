@@ -2,6 +2,7 @@
 set -uea
 . ../.env
 
+CUR_DIR=$(pwd)
 
 ###########################################
 ###             JIGASI Build            ###
@@ -18,8 +19,7 @@ fi
 # Copy source file from docker
 id=$(docker create linto-jigasi-builder:latest)
 docker cp $id:/jigasi_1.1-0-g9a369e3-1_amd64.deb ./jigasi.deb
-docker cp $id:/jigasi/target/jigasi-2.1-0.jar $CONFIG/jigasijar/jigasi.jar
-docker rm -v $id
+docker cp $id:/jigasi/target/jigasi-2.1-0.jar $CUR_DIR/../config/jigasijar/jigasi.jar
 
 # Build jigasi docker
 docker build -t linto-jigasi .
