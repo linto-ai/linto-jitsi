@@ -14,8 +14,8 @@ RUN apt-get -y update && \
     apt-cleanup
 
 COPY rootfs/ /
-COPY ./wait-for-it.sh /
-COPY ./docker-entrypoint.sh /
+COPY ./wait-for-it.sh ./docker-entrypoint.sh  /
+COPY ./jigasi.jar /usr/share/jigasi/jigasi.jar
 
 VOLUME ["/config", "/tmp/transcripts"]
 
