@@ -10,3 +10,15 @@ The whole point here is to rationalize all your deployement in two quick steps:
 3. Run the `start.sh` script on a manager node of your cluster
 
 Simple, isn't it ?
+
+# Build Jigasi
+
+We use an own version of Jigasi module which contains a custom jar (Added a transcription connector to LinTO's server).
+The image can be build with the following command:
+
+```sh
+  # 
+  cd docker
+  ./build-docker.sh
+```
+
