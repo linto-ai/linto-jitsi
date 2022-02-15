@@ -1,7 +1,4 @@
-# Require
-Require to work with the [linto-stack](https://github.com/linto-ai/linto-platform-stack)
-
-# Configuration
+# Note
 
 This repo provides a tool that *tries* to solve all the burden of  deploying LinTO's server components with our proposed Docker images (quite a complicated task otherwise...)
 
